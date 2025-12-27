@@ -109,7 +109,7 @@ struct LoginView: View {
             }
             
             VStack(spacing: 8) {
-                Text("PaymentSystem")
+                Text("Tamim Pay")
                     .font(.system(size: 34, weight: .bold, design: .rounded))
                     .foregroundColor(.white)
                 

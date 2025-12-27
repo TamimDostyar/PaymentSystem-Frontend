@@ -24,14 +24,6 @@ struct HomeView: View {
         }
     }
     
-    private var totalIncome: Double {
-        transactionViewModel.transactions
-            .filter { $0.type.uppercased() == "CREDIT" }
-            .reduce(0) { sum, transaction in
-                sum + Double(abs(transaction.amount))
-            }
-    }
-    
     private var totalExpenses: Double {
         transactionViewModel.transactions
             .filter { $0.type.uppercased() == "DEBIT" }
@@ -95,9 +87,17 @@ struct HomeView: View {
                 .environmentObject(viewModel)
         }
         .onAppear {
-            if let userID = viewModel.currentUser?.userID {
-                transactionViewModel.fetchTransactions(userID: userID)
-            }
+            refreshData()
+        }
+        .refreshable {
+            refreshData()
+        }
+    }
+    
+    private func refreshData() {
+        if let userID = viewModel.currentUser?.userID {
+            transactionViewModel.fetchTransactions(userID: userID)
+            accountViewModel.fetchAccount(userID: userID)
         }
     }
     
@@ -149,7 +149,7 @@ struct HomeView: View {
     // MARK: - Balance Card
     private var balanceCard: some View {
         VStack(spacing: 20) {
-            if transactionViewModel.isLoading {
+            if accountViewModel.isLoading || transactionViewModel.isLoading {
                 VStack(spacing: 12) {
                     ProgressView()
                         .progressViewStyle(CircularProgressViewStyle(tint: .white))
@@ -158,9 +158,37 @@ struct HomeView: View {
                         .foregroundColor(.white.opacity(0.5))
                 }
                 .padding(.vertical, 40)
+            } else if !accountViewModel.hasAccount {
+                // No account yet
+                VStack(spacing: 12) {
+                    Image(systemName: "building.columns")
+                        .font(.system(size: 40))
+                        .foregroundColor(.white.opacity(0.4))
+                    
+                    Text("No Bank Account")
+                        .font(.headline)
+                        .foregroundColor(.white)
+                    
+                    Text("Create an account to get started")
+                        .font(.caption)
+                        .foregroundColor(.white.opacity(0.5))
+                    
+                    NavigationLink(destination: CreateAccountView().environmentObject(viewModel)) {
+                        Text("Create Account")
+                            .font(.subheadline.bold())
+                            .foregroundColor(.black)
+                            .padding(.horizontal, 24)
+                            .padding(.vertical, 10)
+                            .background(Color(hex: "00d9ff"))
+                            .cornerRadius(20)
+                    }
+                    .padding(.top, 8)
+                }
+                .padding(.vertical, 20)
             } else {
+                // Has account - show details
                 VStack(spacing: 8) {
-                    Text("Total Balance")
+                    Text("Available Balance")
                         .font(.subheadline)
                         .foregroundColor(.white.opacity(0.7))
                     
@@ -168,16 +196,38 @@ struct HomeView: View {
                         .font(.system(size: 44, weight: .bold, design: .rounded))
                         .foregroundColor(.white)
                     
-                    if transactionViewModel.transactions.isEmpty {
-                        Text("No transactions yet")
-                            .font(.caption)
-                            .foregroundColor(.white.opacity(0.5))
+                    // Account details
+                    if let account = accountViewModel.account {
+                        HStack(spacing: 20) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Account")
+                                    .font(.caption2)
+                                    .foregroundColor(.white.opacity(0.4))
+                                Text("•••• \(String(account.accountNumber.suffix(4)))")
+                                    .font(.system(size: 13, weight: .medium, design: .monospaced))
+                                    .foregroundColor(.white.opacity(0.8))
+                            }
+                            
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Routing")
+                                    .font(.caption2)
+                                    .foregroundColor(.white.opacity(0.4))
+                                Text("\(account.routingNumber)")
+                                    .font(.system(size: 13, weight: .medium, design: .monospaced))
+                                    .foregroundColor(.white.opacity(0.8))
+                            }
+                        }
+                        .padding(.top, 4)
                     }
                 }
                 
                 if !transactionViewModel.transactions.isEmpty {
+                    Divider()
+                        .background(.white.opacity(0.1))
+                        .padding(.vertical, 8)
+                    
                     HStack(spacing: 16) {
-                        balanceStatItem(title: "Income", amount: "+\(formatCurrency(totalIncome))", color: Color(hex: "34d399"))
+                        balanceStatItem(title: "Transactions", amount: "\(transactionViewModel.transactions.count)", color: Color(hex: "60a5fa"))
                         
                         Divider()
                             .frame(height: 40)
@@ -242,20 +292,26 @@ struct HomeView: View {
                 .foregroundColor(.white)
             
             HStack(spacing: 16) {
-                NavigationLink(destination: TransferView().environmentObject(viewModel)) {
-                    quickActionCard(
-                        icon: "paperplane.fill",
-                        title: "Transfer",
-                        gradient: [Color(hex: "ff6b6b"), Color(hex: "ff8e53")]
-                    )
+                // Only show Transfer if user has an account
+                if accountViewModel.hasAccount {
+                    NavigationLink(destination: TransferView().environmentObject(viewModel)) {
+                        quickActionCard(
+                            icon: "paperplane.fill",
+                            title: "Transfer",
+                            gradient: [Color(hex: "ff6b6b"), Color(hex: "ff8e53")]
+                        )
+                    }
                 }
                 
-                NavigationLink(destination: CreateAccountView().environmentObject(viewModel)) {
-                    quickActionCard(
-                        icon: "plus.circle.fill",
-                        title: "New Account",
-                        gradient: [Color(hex: "00d9ff"), Color(hex: "00ff88")]
-                    )
+                // Only show "New Account" if user doesn't have one
+                if !accountViewModel.hasAccount && !accountViewModel.isLoading {
+                    NavigationLink(destination: CreateAccountView().environmentObject(viewModel)) {
+                        quickActionCard(
+                            icon: "plus.circle.fill",
+                            title: "New Account",
+                            gradient: [Color(hex: "00d9ff"), Color(hex: "00ff88")]
+                        )
+                    }
                 }
                 
                 NavigationLink(destination: TransactionHistoryView().environmentObject(viewModel)) {
@@ -430,6 +486,7 @@ struct HomeView: View {
 struct ProfileView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject var viewModel: LoginViewModel
+    @StateObject private var accountViewModel = AccountViewModel()
     
     var body: some View {
         NavigationStack {
@@ -460,7 +517,7 @@ struct ProfileView: View {
                             .foregroundColor(.white)
                         
                         Text(viewModel.currentUser?.accountType ?? "Account")
-                    .font(.subheadline)
+                            .font(.subheadline)
                             .foregroundColor(.white.opacity(0.6))
                         
                         Text("User ID: \(viewModel.currentUser?.userID ?? 0)")
@@ -468,12 +525,31 @@ struct ProfileView: View {
                             .foregroundColor(.white.opacity(0.4))
                     }
                     
-                    // Info Cards
-                    VStack(spacing: 16) {
-                        profileInfoRow(icon: "at", title: "Username", value: viewModel.currentUser?.username ?? "N/A")
-                        profileInfoRow(icon: "phone.fill", title: "Phone", value: viewModel.currentUser?.phoneNumber ?? "N/A")
-                        profileInfoRow(icon: "house.fill", title: "Address", value: viewModel.currentUser?.address ?? "N/A")
-                        profileInfoRow(icon: "building.columns.fill", title: "Account Type", value: viewModel.currentUser?.accountType ?? "N/A")
+                    // Bank Account Card
+                    if accountViewModel.isLoading {
+                        ProgressView()
+                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                            .padding(.vertical, 20)
+                    } else if let account = accountViewModel.account {
+                        bankAccountCard(account: account)
+                    } else {
+                        noBankAccountCard
+                    }
+                    
+                    // Personal Info Cards
+                    VStack(spacing: 0) {
+                        Text("Personal Information")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(.white.opacity(0.4))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.bottom, 12)
+                        
+                        VStack(spacing: 16) {
+                            profileInfoRow(icon: "at", title: "Username", value: viewModel.currentUser?.username ?? "N/A")
+                            profileInfoRow(icon: "phone.fill", title: "Phone", value: viewModel.currentUser?.phoneNumber ?? "N/A")
+                            profileInfoRow(icon: "house.fill", title: "Address", value: viewModel.currentUser?.address ?? "N/A")
+                            profileInfoRow(icon: "creditcard.fill", title: "Account Type", value: viewModel.currentUser?.accountType ?? "N/A")
+                        }
                     }
                     .padding(20)
                     .background(
@@ -516,7 +592,139 @@ struct ProfileView: View {
                     }
                 }
             }
+            .onAppear {
+                if let userID = viewModel.currentUser?.userID {
+                    accountViewModel.fetchAccount(userID: userID)
+                }
+            }
         }
+    }
+    
+    // MARK: - Bank Account Card
+    private func bankAccountCard(account: Account) -> some View {
+        VStack(spacing: 0) {
+            // Header
+            HStack {
+                Image(systemName: "building.columns.fill")
+                    .font(.system(size: 16))
+                    .foregroundColor(Color(hex: "00d9ff"))
+                Text("Bank Account")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(.white.opacity(0.7))
+                Spacer()
+                Text("Active")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundColor(Color(hex: "34d399"))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .background(Color(hex: "34d399").opacity(0.15))
+                    .cornerRadius(8)
+            }
+            .padding(.bottom, 16)
+            
+            // Account Number
+            VStack(alignment: .leading, spacing: 6) {
+                Text("ACCOUNT NUMBER")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundColor(.white.opacity(0.4))
+                    .tracking(1.5)
+                
+                Text(account.accountNumber)
+                    .font(.system(size: 22, weight: .bold, design: .monospaced))
+                    .foregroundColor(.white)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.bottom, 16)
+            
+            Divider()
+                .background(.white.opacity(0.1))
+                .padding(.bottom, 16)
+            
+            // Routing Number and Balance
+            HStack {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("ROUTING NUMBER")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundColor(.white.opacity(0.4))
+                        .tracking(1.5)
+                    
+                    Text("\(account.routingNumber)")
+                        .font(.system(size: 18, weight: .bold, design: .monospaced))
+                        .foregroundColor(.white)
+                }
+                
+                Spacer()
+                
+                VStack(alignment: .trailing, spacing: 6) {
+                    Text("BALANCE")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundColor(.white.opacity(0.4))
+                        .tracking(1.5)
+                    
+                    Text(formatCurrency(account.amountAvail))
+                        .font(.system(size: 18, weight: .bold, design: .rounded))
+                        .foregroundColor(Color(hex: "34d399"))
+                }
+            }
+        }
+        .padding(20)
+        .background(
+            RoundedRectangle(cornerRadius: 20)
+                .fill(
+                    LinearGradient(
+                        colors: [Color(hex: "1a1a2e"), Color(hex: "16213e")],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 20)
+                        .stroke(
+                            LinearGradient(
+                                colors: [Color(hex: "00d9ff").opacity(0.3), Color(hex: "6366f1").opacity(0.1)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            ),
+                            lineWidth: 1
+                        )
+                )
+        )
+    }
+    
+    private var noBankAccountCard: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "building.columns")
+                .font(.system(size: 32))
+                .foregroundColor(.white.opacity(0.3))
+            
+            Text("No Bank Account")
+                .font(.headline)
+                .foregroundColor(.white.opacity(0.7))
+            
+            Text("Create an account to view your banking details")
+                .font(.caption)
+                .foregroundColor(.white.opacity(0.4))
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 30)
+        .padding(.horizontal, 20)
+        .background(
+            RoundedRectangle(cornerRadius: 20)
+                .fill(.white.opacity(0.05))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 20)
+                        .stroke(.white.opacity(0.08), lineWidth: 1)
+                )
+        )
+    }
+    
+    private func formatCurrency(_ amount: Double) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .currency
+        formatter.currencyCode = "USD"
+        formatter.maximumFractionDigits = 2
+        return formatter.string(from: NSNumber(value: amount)) ?? "$0.00"
     }
     
     private var initials: String {
