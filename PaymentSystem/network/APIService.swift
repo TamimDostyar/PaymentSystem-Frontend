@@ -133,6 +133,11 @@ final class APIService {
         return try await makeRequest(endpoint: "createAccount/\(userID)", method: "POST", body: account)
     }
     
+    /// Get bank account for a user
+    func getAccount(userID: Int) async throws -> GetAccountResponse {
+        return try await makeRequest(endpoint: "getAccount/\(userID)", method: "GET")
+    }
+    
     // MARK: - Transaction Endpoints
     
     /// Initialize transaction table (admin function)

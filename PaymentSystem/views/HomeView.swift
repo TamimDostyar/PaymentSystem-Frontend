@@ -10,8 +10,35 @@ import SwiftUI
 struct HomeView: View {
     @EnvironmentObject var viewModel: LoginViewModel
     @StateObject private var transactionViewModel = TransactionViewModel()
+    @StateObject private var accountViewModel = AccountViewModel()
     
     @State private var showProfile = false
+    
+    // Use account balance from API, fallback to transaction calculation
+    private var totalBalance: Double {
+        if let account = accountViewModel.account {
+            return account.amountAvail
+        }
+        return transactionViewModel.transactions.reduce(0) { sum, transaction in
+            sum + Double(transaction.amount)
+        }
+    }
+    
+    private var totalIncome: Double {
+        transactionViewModel.transactions
+            .filter { $0.type.uppercased() == "CREDIT" }
+            .reduce(0) { sum, transaction in
+                sum + Double(abs(transaction.amount))
+            }
+    }
+    
+    private var totalExpenses: Double {
+        transactionViewModel.transactions
+            .filter { $0.type.uppercased() == "DEBIT" }
+            .reduce(0) { sum, transaction in
+                sum + Double(abs(transaction.amount))
+            }
+    }
     
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -122,32 +149,43 @@ struct HomeView: View {
     // MARK: - Balance Card
     private var balanceCard: some View {
         VStack(spacing: 20) {
-            VStack(spacing: 8) {
-                Text("Total Balance")
-                    .font(.subheadline)
-                    .foregroundColor(.white.opacity(0.7))
-                
-                Text("$12,450.00")
-                    .font(.system(size: 44, weight: .bold, design: .rounded))
-                    .foregroundColor(.white)
-                
-                HStack(spacing: 4) {
-                    Image(systemName: "arrow.up.right")
-                        .font(.caption.bold())
-                    Text("+12.5% this month")
+            if transactionViewModel.isLoading {
+                VStack(spacing: 12) {
+                    ProgressView()
+                        .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                    Text("Loading...")
                         .font(.caption)
+                        .foregroundColor(.white.opacity(0.5))
                 }
-                .foregroundColor(Color(hex: "34d399"))
-            }
-            
-            HStack(spacing: 16) {
-                balanceStatItem(title: "Income", amount: "+$3,250", color: Color(hex: "34d399"))
+                .padding(.vertical, 40)
+            } else {
+                VStack(spacing: 8) {
+                    Text("Total Balance")
+                        .font(.subheadline)
+                        .foregroundColor(.white.opacity(0.7))
+                    
+                    Text(formatCurrency(totalBalance))
+                        .font(.system(size: 44, weight: .bold, design: .rounded))
+                        .foregroundColor(.white)
+                    
+                    if transactionViewModel.transactions.isEmpty {
+                        Text("No transactions yet")
+                            .font(.caption)
+                            .foregroundColor(.white.opacity(0.5))
+                    }
+                }
                 
-                Divider()
-                    .frame(height: 40)
-                    .background(.white.opacity(0.2))
-                
-                balanceStatItem(title: "Expenses", amount: "-$1,820", color: Color(hex: "f87171"))
+                if !transactionViewModel.transactions.isEmpty {
+                    HStack(spacing: 16) {
+                        balanceStatItem(title: "Income", amount: "+\(formatCurrency(totalIncome))", color: Color(hex: "34d399"))
+                        
+                        Divider()
+                            .frame(height: 40)
+                            .background(.white.opacity(0.2))
+                        
+                        balanceStatItem(title: "Expenses", amount: "-\(formatCurrency(totalExpenses))", color: Color(hex: "f87171"))
+                    }
+                }
             }
         }
         .padding(24)
@@ -174,6 +212,14 @@ struct HomeView: View {
                 )
                 .shadow(color: Color(hex: "6366f1").opacity(0.2), radius: 30, y: 10)
         )
+    }
+    
+    private func formatCurrency(_ amount: Double) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .currency
+        formatter.currencyCode = "USD"
+        formatter.maximumFractionDigits = 2
+        return formatter.string(from: NSNumber(value: abs(amount))) ?? "$0.00"
     }
     
     private func balanceStatItem(title: String, amount: String, color: Color) -> some View {
@@ -268,10 +314,12 @@ struct HomeView: View {
                 
                 Spacer()
                 
-                NavigationLink(destination: TransactionHistoryView().environmentObject(viewModel)) {
-                    Text("See All")
-                        .font(.subheadline.bold())
-                        .foregroundColor(Color(hex: "6366f1"))
+                if !transactionViewModel.transactions.isEmpty {
+                    NavigationLink(destination: TransactionHistoryView().environmentObject(viewModel)) {
+                        Text("See All")
+                            .font(.subheadline.bold())
+                            .foregroundColor(Color(hex: "6366f1"))
+                    }
                 }
             }
             
@@ -301,15 +349,14 @@ struct HomeView: View {
                 .font(.system(size: 40))
                 .foregroundColor(.white.opacity(0.3))
             
-            Text("No recent activity")
+            Text("No transactions yet")
                 .font(.subheadline)
                 .foregroundColor(.white.opacity(0.5))
             
-            NavigationLink(destination: TransferView().environmentObject(viewModel)) {
-                Text("Make your first transfer")
-                    .font(.subheadline.bold())
-                    .foregroundColor(Color(hex: "6366f1"))
-            }
+            Text("Create an account and make your first transfer")
+                .font(.caption)
+                .foregroundColor(.white.opacity(0.4))
+                .multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 40)
@@ -337,7 +384,7 @@ struct HomeView: View {
                     .foregroundColor(.white)
                     .lineLimit(1)
                 
-                Text(transaction.date.isEmpty ? "Today" : transaction.date)
+                Text(transaction.date.isEmpty ? "-" : transaction.date)
                     .font(.caption)
                     .foregroundColor(.white.opacity(0.4))
             }
@@ -375,7 +422,7 @@ struct HomeView: View {
     
     private func formatAmount(_ amount: Int, type: String) -> String {
         let prefix = type.uppercased() == "CREDIT" ? "+" : "-"
-        return "\(prefix)$\(amount)"
+        return "\(prefix)$\(abs(amount))"
     }
 }
 
@@ -413,12 +460,17 @@ struct ProfileView: View {
                             .foregroundColor(.white)
                         
                         Text(viewModel.currentUser?.accountType ?? "Account")
-                            .font(.subheadline)
+                    .font(.subheadline)
                             .foregroundColor(.white.opacity(0.6))
+                        
+                        Text("User ID: \(viewModel.currentUser?.userID ?? 0)")
+                            .font(.caption)
+                            .foregroundColor(.white.opacity(0.4))
                     }
                     
                     // Info Cards
                     VStack(spacing: 16) {
+                        profileInfoRow(icon: "at", title: "Username", value: viewModel.currentUser?.username ?? "N/A")
                         profileInfoRow(icon: "phone.fill", title: "Phone", value: viewModel.currentUser?.phoneNumber ?? "N/A")
                         profileInfoRow(icon: "house.fill", title: "Address", value: viewModel.currentUser?.address ?? "N/A")
                         profileInfoRow(icon: "building.columns.fill", title: "Account Type", value: viewModel.currentUser?.accountType ?? "N/A")

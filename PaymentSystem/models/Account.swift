@@ -32,6 +32,22 @@ struct CreateAccountResponse: Codable {
     var routingNumber: String?
 }
 
+struct GetAccountResponse: Codable {
+    var accountNumber: String?
+    var routingNumber: String?
+    var balance: String?
+    var error: String?
+    
+    var hasAccount: Bool {
+        return accountNumber != nil && error == nil
+    }
+    
+    var balanceDouble: Double {
+        guard let balance = balance else { return 0 }
+        return Double(balance) ?? 0
+    }
+}
+
 // MARK: - Generic API Response
 struct APIResponse: Codable {
     var Success: String?
