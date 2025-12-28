@@ -9,10 +9,22 @@ A few things to remember about this application:
     1 - Program is built on XCode 22
     2 - The program is built for devices above version 18
 
-Please remember, there is a backend for this software with a few basic functionalities built on different tech stacks. Please checkout below link for the backend:
+Please remember, there is a backend for this software with a few basic functionalities built on different tech stacks. Please check out the link for the backend:
 
     https://github.com/TamimDostyar/PaymentSystem
 
+Functionalities:
+
+    Send/Receive Money
+    Create account
+    Delete account
+    Check transaction history
+    Create a debit card
+
+Goal:
+
+    Tap Transaction
+    
 Here’s an image showing the interior view:
 
 ![Home Interior Screenshot](home-int.png)
